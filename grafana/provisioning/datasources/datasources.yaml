@@ -1,0 +1,26 @@
+apiVersion: 1
+
+datasources:
+  - name: ClickHouse DDS
+    type: grafana-clickhouse-datasource
+    access: proxy
+    url: http://clickhouse_dds:8123
+    jsonData:
+      defaultDatabase: dds
+      port: 8123
+      server: clickhouse_dds
+      username: default
+    version: 1
+    editable: true
+
+  - name: ClickHouse MARTS
+    type: grafana-clickhouse-datasource
+    access: proxy
+    url: http://clickhouse_marts:8123
+    jsonData:
+      defaultDatabase: marts
+      port: 8123
+      server: clickhouse_marts
+      username: default
+    version: 1
+    editable: true
