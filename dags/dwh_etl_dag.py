@@ -1,10 +1,13 @@
 from datetime import datetime, timedelta
+import os
+import json
 from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.hooks.postgres_hook import PostgresHook
 from airflow.providers.clickhouse.operators.clickhouse import ClickHouseOperator
 from airflow.providers.clickhouse.hooks.clickhouse import ClickHouseHook
+from kafka import KafkaConsumer
 
 default_args = {
     'owner': 'airflow',
@@ -22,6 +25,39 @@ dag = DAG(
     description='ETL pipeline for DWH',
     schedule_interval=timedelta(hours=1),
 )
+
+def process_kafka_events(**kwargs):
+    consumer = KafkaConsumer(
+        os.environ.get('TOPIC_NAME_RESULTS', 'results'),
+        bootstrap_servers=os.environ.get('KAFKA_BROKER', 'kafka:9092'),
+        auto_offset_reset='earliest',
+        enable_auto_commit=True,
+        group_id='dwh_consumer_group',
+        value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+    )
+
+    ods_hook = PostgresHook(postgres_conn_id='postgres_ods')
+    
+    for message in consumer:
+        event_data = message.value
+        ods_hook.run("""
+            INSERT INTO ods.events (
+                event_id, 
+                event_type, 
+                event_data, 
+                event_timestamp
+            ) VALUES (
+                %(event_id)s,
+                %(event_type)s,
+                %(event_data)s,
+                %(event_timestamp)s
+            )
+        """, parameters={
+            'event_id': event_data.get('id'),
+            'event_type': event_data.get('type'),
+            'event_data': json.dumps(event_data),
+            'event_timestamp': datetime.fromtimestamp(message.timestamp/1000.0)
+        })
 
 def process_source_data(**kwargs):
     source_hook = PostgresHook(postgres_conn_id='postgres_source')
@@ -97,6 +133,12 @@ def load_to_marts(**kwargs):
         GROUP BY hour
     """)
 
+kafka_consumer = PythonOperator(
+    task_id='process_kafka_events',
+    python_callable=process_kafka_events,
+    dag=dag,
+)
+
 process_source = PythonOperator(
     task_id='process_source_data',
     python_callable=process_source_data,
@@ -121,4 +163,4 @@ load_marts = PythonOperator(
     dag=dag,
 )
 
-process_source >> load_ods >> transform_dds >> load_marts
+[kafka_consumer, process_source] >> load_ods >> transform_dds >> load_marts
