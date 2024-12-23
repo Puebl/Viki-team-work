@@ -1,15 +1,20 @@
--- Создаем таблицу реплики заказов
-CREATE TABLE IF NOT EXISTS orders_replica (
-    id INTEGER PRIMARY KEY,
-    customer_id INTEGER NOT NULL,
-    product_id INTEGER NOT NULL,
-    order_date TIMESTAMP NOT NULL,
-    amount DECIMAL(10,2) NOT NULL,
-    status VARCHAR(50) NOT NULL,
-    replicated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE SCHEMA IF NOT EXISTS replica;
+
+-- Создаем таблицу для репликации
+CREATE TABLE IF NOT EXISTS replica.orders (
+    id UUID PRIMARY KEY,
+    source_address_id UUID NOT NULL,
+    target_address_id UUID NOT NULL,
+    extra TEXT,
+    registered_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Индексы для оптимизации
-CREATE INDEX IF NOT EXISTS idx_replica_date ON orders_replica(order_date);
-CREATE INDEX IF NOT EXISTS idx_replica_customer ON orders_replica(customer_id);
-CREATE INDEX IF NOT EXISTS idx_replica_product ON orders_replica(product_id);
+-- Создаем индексы
+CREATE INDEX IF NOT EXISTS idx_orders_registered ON replica.orders(registered_at);
+CREATE INDEX IF NOT EXISTS idx_orders_addresses ON replica.orders(source_address_id, target_address_id);
+
+-- Создаем подписку на публикацию из основной БД
+CREATE SUBSCRIPTION orders_subscription
+CONNECTION 'host=postgres_source port=5432 dbname=source_db user=dwh_user password=dwh_password'
+PUBLICATION orders_pub
+WITH (copy_data = true);

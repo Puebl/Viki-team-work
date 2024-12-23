@@ -64,21 +64,22 @@ def process_source_data(**kwargs):
     replica_hook = PostgresHook(postgres_conn_id='postgres_replica')
     
     source_data = source_hook.get_records("""
-        SELECT id, customer_id, product_id, order_date, amount, status
+        SELECT id, source_address_id, target_address_id, extra, registered_at
         FROM orders
-        WHERE order_date >= NOW() - INTERVAL '1 hour'
+        WHERE registered_at >= NOW() - INTERVAL '1 hour'
     """)
     
     for record in source_data:
         replica_hook.run("""
-            INSERT INTO orders_replica (id, customer_id, product_id, order_date, amount, status)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO replica.orders (
+                id, source_address_id, target_address_id, extra, registered_at
+            )
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (id) DO UPDATE 
-            SET customer_id = EXCLUDED.customer_id,
-                product_id = EXCLUDED.product_id,
-                order_date = EXCLUDED.order_date,
-                amount = EXCLUDED.amount,
-                status = EXCLUDED.status
+            SET source_address_id = EXCLUDED.source_address_id,
+                target_address_id = EXCLUDED.target_address_id,
+                extra = EXCLUDED.extra,
+                registered_at = EXCLUDED.registered_at
         """, parameters=record)
     
     return len(source_data)
@@ -88,16 +89,16 @@ def load_to_ods(**kwargs):
     ods_hook = PostgresHook(postgres_conn_id='postgres_ods')
     
     ods_hook.run("""
-        INSERT INTO ods_orders (
-            order_id, customer_id, product_id, order_date, 
-            amount, status, load_timestamp
+        INSERT INTO ods.orders (
+            id, source_address_id, target_address_id, 
+            extra, registered_at, load_timestamp
         )
         SELECT 
-            id, customer_id, product_id, order_date,
-            amount, status, NOW()
-        FROM orders_replica
-        WHERE order_date >= NOW() - INTERVAL '1 hour'
-        ON CONFLICT (order_id) DO UPDATE 
+            id, source_address_id, target_address_id,
+            extra, registered_at, NOW()
+        FROM replica.orders
+        WHERE registered_at >= NOW() - INTERVAL '1 hour'
+        ON CONFLICT (id) DO UPDATE 
         SET load_timestamp = NOW()
     """)
 
@@ -107,15 +108,14 @@ def transform_to_dds(**kwargs):
     clickhouse_hook.run("""
         INSERT INTO dds.fact_orders
         SELECT
-            toDateTime(order_date) as order_datetime,
-            order_id,
-            customer_id,
-            product_id,
-            amount,
-            status,
+            id,
+            source_address_id,
+            target_address_id,
+            extra,
+            registered_at,
             NOW() as processed_dttm
         FROM ods.orders
-        WHERE order_date >= now() - INTERVAL 1 HOUR
+        WHERE registered_at >= now() - INTERVAL 1 HOUR
     """)
 
 def load_to_marts(**kwargs):
