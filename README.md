@@ -65,6 +65,116 @@ DWH интегрируется с основным проектом следую
    - Активность пользователей
    - ROI по типам заказов
 
+## Структура данных
+
+Хранилище данных организовано в виде многоуровневой архитектуры для эффективного анализа и мониторинга системы доставки.
+
+### ODS (Operational Data Store)
+
+Оперативное хранилище данных содержит актуальную информацию о заказах, доставках и исполнителях:
+
+#### Основные таблицы
+
+- **orders** - Информация о заказах
+  - `id` - Уникальный идентификатор заказа
+  - `source_address_id` - Адрес отправления
+  - `target_address_id` - Адрес доставки
+  - `registered_at` - Время регистрации заказа
+  
+- **deliveries** - Информация о доставках
+  - `pipeline_id` - ID процесса доставки
+  - `cost` - Стоимость доставки
+  - `performer_id` - ID курьера
+  - `estimated_at` - Время расчета стоимости
+  - `assigned_at` - Время назначения курьера
+  - `released_at` - Время завершения доставки
+
+- **performers** - Информация о курьерах
+  - `id` - Уникальный идентификатор курьера
+
+- **events** - События системы из Kafka
+  - `event_id` - ID события
+  - `event_type` - Тип события
+  - `event_data` - Данные события (JSON)
+  - `event_timestamp` - Время события
+
+### DDS (Data Data Store)
+
+Детальное хранилище для аналитики, оптимизированное для быстрых запросов:
+
+#### Таблицы фактов
+
+- **fact_orders** - Факты о заказах
+- **fact_deliveries** - Факты о доставках
+- **fact_events** - Факты о событиях системы
+
+#### Аналитические представления
+
+- **hourly_deliveries_mv** - Почасовая статистика доставок
+  - Количество доставок по курьерам
+  - Общая и средняя стоимость
+  - Количество завершенных доставок
+  
+- **hourly_orders_mv** - Почасовая статистика заказов
+  - Общее количество заказов
+  - Уникальные адреса отправления/доставки
+  
+- **hourly_events_mv** - Почасовая статистика событий
+  - Количество событий по типам
+
+### Примеры аналитических запросов
+
+1. Эффективность курьеров:
+```sql
+SELECT 
+    performer_id,
+    count(*) as total_deliveries,
+    avg(cost) as avg_delivery_cost,
+    avg(extract(epoch from (released_at - assigned_at))) as avg_delivery_time_seconds
+FROM dds.fact_deliveries
+WHERE released_at IS NOT NULL
+GROUP BY performer_id
+ORDER BY avg_delivery_time_seconds;
+```
+
+2. Популярные маршруты:
+```sql
+SELECT 
+    source_address_id,
+    target_address_id,
+    count(*) as route_count
+FROM dds.fact_orders
+GROUP BY source_address_id, target_address_id
+ORDER BY route_count DESC
+LIMIT 10;
+```
+
+3. Статистика по часам:
+```sql
+SELECT 
+    hour,
+    orders_count,
+    unique_source_addresses,
+    unique_target_addresses
+FROM dds.hourly_orders_mv
+WHERE hour >= now() - INTERVAL '24 HOUR'
+ORDER BY hour;
+```
+
+### Оптимизация производительности
+
+1. **Партиционирование**:
+   - Данные разделены по месяцам для быстрого доступа
+   - Автоматическое удаление старых партиций
+
+2. **Индексы**:
+   - Оптимизированы для частых запросов
+   - Покрывающие индексы для основных сценариев
+
+3. **Материализованные представления**:
+   - Автоматическое обновление
+   - Предрасчет популярных метрик
+
 ## Требования
 
 - Docker и Docker Compose
