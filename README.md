@@ -244,7 +244,56 @@ docker-compose up -d
 3. Запустите DWH:
 ```bash
 cd ../Viki-team-work
+
+# Создайте и активируйте виртуальное окружение (опционально)
+python -m venv venv
+source venv/bin/activate  # для Linux/Mac
+# или
+venv\Scripts\activate  # для Windows
+
+# Установите зависимости
+pip install -r requirements.txt
+
+# Примените миграции базы данных
+cd main_project
+alembic upgrade head
+
+# Запустите контейнеры
 docker-compose up -d
+```
+
+4. Проверьте статус сервисов:
+```bash
+docker-compose ps
+```
+
+5. Проверьте логи:
+```bash
+docker-compose logs -f
+```
+
+## Обновление базы данных
+
+При изменении моделей в `models.py`:
+
+1. Создайте новую миграцию:
+```bash
+cd main_project
+alembic revision --autogenerate -m "описание изменений"
+```
+
+2. Проверьте сгенерированную миграцию в `migrations/versions/`
+
+3. Примените миграцию:
+```bash
+alembic upgrade head
+```
+
+4. Для отката изменений:
+```bash
+alembic downgrade -1  # откат на одну миграцию назад
+# или
+alembic downgrade base  # откат всех миграций
 ```
 
 ## Доступ к компонентам
